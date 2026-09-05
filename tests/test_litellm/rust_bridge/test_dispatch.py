@@ -7,10 +7,9 @@ from typing import Final
 
 import pytest
 
-from litellm.exceptions import APIError
+from litellm.exceptions import APIError, AuthenticationError, InternalServerError, RateLimitError
 from litellm.rust_bridge import bindings
-from litellm.rust_bridge.chat_completions import error_handling
-from litellm.rust_bridge.dispatch import PROPAGATE, PYTHON_ON_ERROR, adispatch, dispatch
+from litellm.rust_bridge.dispatch import PROPAGATE, PYTHON_ON_ERROR, adispatch, dispatch, provider_errors
 from litellm.rust_bridge.runtime import DispatchResult, Handled, NativeFailed, NativeSkipped, NativeSkipReason
 
 
@@ -86,7 +85,7 @@ async def test_native_success_does_not_run_python_even_when_value_is_none(asynch
 @pytest.mark.parametrize("asynchronous", (False, True))
 @pytest.mark.parametrize("policy", ("chat", "propagate", "python"))
 @pytest.mark.parametrize("kind", ("declined", "upstream", "unknown", "unexpected", "missing"))
-async def test_declarations_preserve_endpoint_error_behavior(
+async def test_declarations_control_endpoint_error_behavior(
     monkeypatch: pytest.MonkeyPatch, asynchronous: bool, policy: str, kind: str
 ) -> None:
     if kind == "missing":
@@ -99,7 +98,7 @@ async def test_declarations_preserve_endpoint_error_behavior(
         else RuntimeError("failed")
     )
     rules: Final = (
-        error_handling("anthropic", "model")
+        provider_errors("anthropic", "model")
         if policy == "chat"
         else PYTHON_ON_ERROR
         if policy == "python"
@@ -127,11 +126,11 @@ async def test_declarations_preserve_endpoint_error_behavior(
             return await adispatch(native=anative, python=apython, route="chat_completions", errors=rules)
         return dispatch(native=native, python=python, route="chat_completions", errors=rules)
 
-    if policy == "python" or (policy == "chat" and kind in ("declined", "missing")):
+    if policy == "python" or (policy == "chat" and kind == "declined"):
         assert await run() == "python response"
         assert calls == ["python"]
     elif policy == "chat" and kind == "upstream":
-        with pytest.raises(APIError) as caught:
+        with pytest.raises(RateLimitError) as caught:
             await run()
         assert caught.value.status_code == 429
         assert caught.value.model == "model"
@@ -189,15 +188,15 @@ async def test_cancellation_does_not_run_python() -> None:
         await adispatch(native=native, python=python, route="test", errors=PYTHON_ON_ERROR)
 
 
-@pytest.mark.parametrize("status", (0, 401, 403, 429, 500, 503))
-def test_chat_upstream_mapping_preserves_status_message_and_context(status: int) -> None:
+@pytest.mark.parametrize("status,exception_type", ((0, APIError), (401, AuthenticationError), (403, APIError), (429, RateLimitError), (500, InternalServerError), (503, APIError)))
+def test_upstream_mapping_preserves_status_message_and_context(status: int, exception_type: type[Exception]) -> None:
     error: Final = Upstream(status, "upstream failed")
-    with pytest.raises(APIError, match="upstream failed") as caught:
+    with pytest.raises(exception_type, match="upstream failed") as caught:
         dispatch(
             native=lambda: NativeFailed(error),
             python=lambda: pytest.fail("upstream errors must not run Python"),
             route="chat_completions",
-            errors=error_handling("anthropic", "model"),
+            errors=provider_errors("anthropic", "model"),
         )
     assert caught.value.status_code == (status or 500)
     assert caught.value.model == "model"

@@ -25,7 +25,7 @@ from litellm.llms.base_llm.ocr.transformation import (
 )
 from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
 from litellm.rust_bridge import ocr as rust_ocr_bridge
-from litellm.rust_bridge.dispatch import PROPAGATE, adispatch, dispatch
+from litellm.rust_bridge.dispatch import adispatch, dispatch, provider_errors
 from litellm.types.router import GenericLiteLLMParams
 from litellm.utils import ProviderConfigManager, client
 
@@ -275,7 +275,7 @@ async def aocr(
             native=lambda: rust_ocr_bridge.aattempt_ocr(prepared_request=prepared, resolve_api_key=get_secret_str),
             python=python_fallback,
             route="ocr",
-            errors=PROPAGATE,
+            errors=provider_errors(prepared.custom_llm_provider, prepared.model),
         )
     except Exception as e:
         raise litellm.exception_type(
@@ -537,7 +537,7 @@ def ocr(
             native=lambda: rust_ocr_bridge.attempt_ocr(prepared_request=prepared, resolve_api_key=get_secret_str),
             python=python_fallback,
             route="ocr",
-            errors=PROPAGATE,
+            errors=provider_errors(prepared.custom_llm_provider, prepared.model),
         )
     except Exception as e:
         raise litellm.exception_type(

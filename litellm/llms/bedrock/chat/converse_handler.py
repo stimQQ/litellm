@@ -18,7 +18,7 @@ from litellm.llms.custom_httpx.http_handler import (
 )
 from litellm.rust_bridge import chat_completions as rust_chat_completions_bridge
 from litellm.rust_bridge.chat_completions import rust_chat_completions_accepts
-from litellm.rust_bridge.dispatch import adispatch, dispatch
+from litellm.rust_bridge.dispatch import adispatch, dispatch, provider_errors
 from litellm.types.utils import ModelResponse
 from litellm.utils import CustomStreamWrapper
 
@@ -456,7 +456,7 @@ class BedrockConverseLLM(BaseAWSLLM):
                         skip_pre_call_logging=True,
                     ),
                     route="chat_completions",
-                    errors=rust_chat_completions_bridge.error_handling("bedrock", model),
+                    errors=provider_errors("bedrock", model),
                 )
             rust_response: Final = dispatch(
                 native=lambda: rust_chat_completions_bridge.chat_completions(
@@ -473,7 +473,7 @@ class BedrockConverseLLM(BaseAWSLLM):
                 ),
                 python=lambda: None,
                 route="chat_completions",
-                errors=rust_chat_completions_bridge.error_handling("bedrock", model),
+                errors=provider_errors("bedrock", model),
             )
             if rust_response is not None:
                 return rust_response

@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Final, TypeAlias, TypeVar
 
 from litellm._logging import verbose_logger
-from litellm.exceptions import APIError
+from litellm.exceptions import APIError, AuthenticationError, InternalServerError, RateLimitError
 from litellm.rust_bridge.bindings import native_declined_types, native_upstream_types
 from litellm.rust_bridge.runtime import DispatchResult, Handled, NativeFailed, NativeSkipped, NativeSkipReason
 
@@ -47,6 +47,13 @@ PYTHON_ON_ERROR: Final = ErrorHandling(
 )
 
 
+def provider_errors(provider: str, model: str) -> ErrorHandling:
+    return ErrorHandling(
+        declined=ErrorAction.SKIP,
+        upstream=APIErrorMapping(provider=provider, model=model),
+    )
+
+
 def _handle_error(error: Exception, action: FailureAction, route: str, reason: NativeSkipReason) -> NativeSkipped:
     match action:
         case ErrorAction.SKIP:
@@ -63,9 +70,16 @@ def _handle_error(error: Exception, action: FailureAction, route: str, reason: N
             )
             status: Final = status_value if isinstance(status_value, int) else 0
             message: Final = message_value if isinstance(message_value, str) else str(message_value)
+            error_message: Final = f"litellm rust {route}: {message}"
+            if status == 401:
+                raise AuthenticationError(message=error_message, llm_provider=provider, model=model) from error
+            if status == 429:
+                raise RateLimitError(message=error_message, llm_provider=provider, model=model) from error
+            if status == 500:
+                raise InternalServerError(message=error_message, llm_provider=provider, model=model) from error
             raise APIError(
                 status_code=status or 500,
-                message=f"litellm rust {route}: {message}",
+                message=error_message,
                 llm_provider=provider,
                 model=model,
             ) from error

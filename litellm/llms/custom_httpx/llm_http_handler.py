@@ -2408,7 +2408,7 @@ class BaseLLMHTTPHandler:
         from litellm.rust_bridge import messages as rust_messages_bridge
 
         upstream_body: Final = {key: value for key, value in request_body.items() if key != "stream"}
-        from litellm.rust_bridge.dispatch import PYTHON_ON_ERROR, adispatch, async_none
+        from litellm.rust_bridge.dispatch import adispatch, async_none, provider_errors
 
         rust_response: Final = await adispatch(
             native=lambda: rust_messages_bridge.amessages(
@@ -2422,7 +2422,7 @@ class BaseLLMHTTPHandler:
             ),
             python=async_none,
             route="messages",
-            errors=PYTHON_ON_ERROR,
+            errors=provider_errors(custom_llm_provider, model),
         )
         if rust_response is None:
             return None
@@ -6511,7 +6511,7 @@ class BaseLLMHTTPHandler:
             async def _backend_connection():
                 if _rust_responses_websocket_enabled(custom_llm_provider):
                     from litellm.rust_bridge import responses_websocket as rust_responses_websocket
-                    from litellm.rust_bridge.dispatch import PYTHON_ON_ERROR, adispatch, async_none
+                    from litellm.rust_bridge.dispatch import adispatch, async_none, provider_errors
 
                     rust_backend: Final = await adispatch(
                         native=lambda: rust_responses_websocket.connect(
@@ -6521,7 +6521,7 @@ class BaseLLMHTTPHandler:
                         ),
                         python=async_none,
                         route="responses_websocket",
-                        errors=PYTHON_ON_ERROR,
+                        errors=provider_errors("openai", "responses websocket"),
                     )
                     if rust_backend is not None:
                         yield rust_backend

@@ -27,7 +27,7 @@ from litellm.llms.custom_httpx.http_handler import (
 )
 from litellm.rust_bridge import chat_completions as rust_chat_completions_bridge
 from litellm.rust_bridge.chat_completions import rust_chat_completions_accepts
-from litellm.rust_bridge.dispatch import adispatch, dispatch
+from litellm.rust_bridge.dispatch import adispatch, dispatch, provider_errors
 from litellm.types.llms.anthropic import (
     ContentBlockDelta,
     ContentBlockStart,
@@ -469,7 +469,7 @@ class AnthropicChatCompletion(BaseLLM):
                     ),
                     python=python_fallback,
                     route="chat_completions",
-                    errors=rust_chat_completions_bridge.error_handling(custom_llm_provider or "", model),
+                    errors=provider_errors(custom_llm_provider or "", model),
                 )
             rust_response: Final = dispatch(
                 native=lambda: rust_chat_completions_bridge.chat_completions(
@@ -486,7 +486,7 @@ class AnthropicChatCompletion(BaseLLM):
                 ),
                 python=lambda: None,
                 route="chat_completions",
-                errors=rust_chat_completions_bridge.error_handling(custom_llm_provider or "", model),
+                errors=provider_errors(custom_llm_provider or "", model),
             )
             if rust_response is not None:
                 return rust_response
