@@ -1,14 +1,16 @@
 """Tests for the optional Rust-backed Anthropic Messages path."""
 
 import importlib
-from typing import cast
+from typing import Final, cast
+from types import SimpleNamespace
 
 import httpx
 import pytest
 
 import litellm
 from litellm.llms.custom_httpx.llm_http_handler import BaseLLMHTTPHandler
-from litellm.rust_bridge import configuration
+from litellm.rust_bridge import bindings, configuration
+from litellm.exceptions import RateLimitError
 from litellm.rust_bridge.runtime import Handled, NativeSkipped, NativeSkipReason
 from litellm.types.llms.anthropic_messages.anthropic_response import (
     AnthropicMessagesResponse,
@@ -414,3 +416,32 @@ async def test_gate_falls_back_when_bridge_unavailable(monkeypatch):
     response = await _gate()
 
     assert response is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("declined", (False, True))
+async def test_gate_uses_shared_native_error_handling(monkeypatch: pytest.MonkeyPatch, declined: bool) -> None:
+    class Declined(Exception):
+        pass
+
+    class Upstream(Exception):
+        pass
+
+    error: Final = Declined("unsupported") if declined else Upstream(429, "rate limited")
+
+    async def native(**kwargs: object) -> dict[str, object]:
+        raise error
+
+    monkeypatch.setattr(
+        bindings, "get_native_bridge", lambda: SimpleNamespace(RustBridgeDeclined=Declined, RustUpstreamError=Upstream)
+    )
+    litellm.rust(True)
+    rust_messages.set_rust_messages(amessages=native)
+    if declined:
+        assert await _gate() is None
+    else:
+        with pytest.raises(RateLimitError) as caught:
+            await _gate()
+        assert caught.value.__cause__ is error
+        assert caught.value.llm_provider == "azure_ai"
+        assert caught.value.model == "claude-sonnet-4-5"

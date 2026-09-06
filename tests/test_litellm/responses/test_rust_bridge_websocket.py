@@ -4,6 +4,7 @@ import pytest
 
 from litellm.llms.custom_httpx.llm_http_handler import _rust_responses_websocket_enabled
 from litellm.rust_bridge import configuration, responses_websocket
+from litellm.rust_bridge.dispatch import adispatch, async_none, provider_errors
 from litellm.rust_bridge.runtime import Handled, NativeSkipped, NativeSkipReason, NativeFailed
 
 
@@ -115,3 +116,16 @@ async def test_connection_failure_is_reported_to_orchestration() -> None:
     result = await responses_websocket.connect(url="wss://example.test/responses", headers={}, timeout=None)
     assert isinstance(result, NativeFailed)
     assert str(result.error) == "connection failed"
+
+
+@pytest.mark.asyncio
+async def test_connection_failure_does_not_authorize_python_fallback() -> None:
+    configuration.rust(True)
+    responses_websocket.set_rust_responses_websocket(connection=_FailingNativeBridge)
+    with pytest.raises(RuntimeError, match="connection failed"):
+        await adispatch(
+            native=lambda: responses_websocket.connect(url="wss://example.test/responses", headers={}, timeout=None),
+            python=async_none,
+            route="responses_websocket",
+            errors=provider_errors("openai", "responses websocket"),
+        )

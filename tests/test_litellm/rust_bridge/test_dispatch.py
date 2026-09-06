@@ -188,16 +188,47 @@ async def test_cancellation_does_not_run_python() -> None:
         await adispatch(native=native, python=python, route="test", errors=PYTHON_ON_ERROR)
 
 
-@pytest.mark.parametrize("status,exception_type", ((0, APIError), (401, AuthenticationError), (403, APIError), (429, RateLimitError), (500, InternalServerError), (503, APIError)))
-def test_upstream_mapping_preserves_status_message_and_context(status: int, exception_type: type[Exception]) -> None:
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", (False, True))
+@pytest.mark.parametrize(
+    "status,exception_type",
+    (
+        (0, APIError),
+        (401, AuthenticationError),
+        (403, APIError),
+        (429, RateLimitError),
+        (500, InternalServerError),
+        (503, APIError),
+    ),
+)
+async def test_upstream_mapping_preserves_status_message_and_context(
+    asynchronous: bool, status: int, exception_type: type[Exception]
+) -> None:
     error: Final = Upstream(status, "upstream failed")
-    with pytest.raises(exception_type, match="upstream failed") as caught:
-        dispatch(
+
+    async def native() -> DispatchResult[str]:
+        return NativeFailed(error)
+
+    async def python() -> str:
+        pytest.fail("upstream errors must not run Python")
+
+    async def run() -> str:
+        if asynchronous:
+            return await adispatch(
+                native=native,
+                python=python,
+                route="chat_completions",
+                errors=provider_errors("anthropic", "model"),
+            )
+        return dispatch(
             native=lambda: NativeFailed(error),
             python=lambda: pytest.fail("upstream errors must not run Python"),
             route="chat_completions",
             errors=provider_errors("anthropic", "model"),
         )
+
+    with pytest.raises(exception_type, match="upstream failed") as caught:
+        await run()
     assert caught.value.status_code == (status or 500)
     assert caught.value.model == "model"
     assert caught.value.llm_provider == "anthropic"

@@ -288,4 +288,3 @@ async def achat_completions(
         call=call,
         adapt=adapt,
     )
-
